@@ -3,8 +3,8 @@ title: Firecrawl Web Scrape
 description: Firecrawl web scraping tool that extracts text content using Firecrawl service.
 author: Artur Zdolinski
 author_url: https://github.com/azdolinski
-git_url: https://github.com/azdolinski/firecrawl
-required_open_webui_version: 0.4.0
+git_url: https://github.com/azdolinski//open-webui-tools
+required_open_webui_version: 0.5.0
 requirements: requests, urllib3, pydantic, html2text
 version: 0.4.0
 licence: MIT
@@ -20,6 +20,8 @@ import urllib3
 from bs4 import BeautifulSoup
 import html2text
 from pprint import pprint
+from datetime import datetime
+from textwrap import dedent
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -54,8 +56,8 @@ class Tools:
         firecrawl_api_url: str = "https://api.firecrawl.dev/v1/"
         firecrawl_api_key: str = ""
         formats: List[str] = Field(
-            default=["markdown"],
-            description='Output formats for the scraped content: markdown, html, rawHtml, links, screenshot'
+            default=["html2text", "html2bs4",
+            description='Output formats for the scraped content: markdown, html, rawHtml, links, screenshot. You can also use extra processing of html -> html2text, html2bs4'
         )
 
         # Optional fields with defaults
@@ -127,6 +129,7 @@ class Tools:
         """Initialize the Tool with default values."""
         self.valves = self.Valves()
         self._session = None
+        self._skip_html = False
 
     def html_clean_bs4(self, html_content):
         """Performs a quick cleanup of common unwanted HTML tags and attributes."""
@@ -207,6 +210,11 @@ class Tools:
             if __event_emitter__:
                 asyncio.create_task(event_emitter.progress_update("Starting web scrape..."))
 
+            # Ensure we always have 'html' format if 'html2' is defined
+            if all(format.startswith("html2") for format in self.valves.formats):
+                    self.valves.formats.insert(0, 'html')
+                    self._skip_html = True
+
             # We need to remove all formats which are starts like: html2
             payload = {
                 "url": url,
@@ -220,7 +228,7 @@ class Tools:
             logger.debug(f"Request payload: {payload}")
 
             print(f"Firecrawl Tool request for url: {url} - payload: {payload}")
-
+            
             # Update status to inform user
             if __event_emitter__:
                 await event_emitter.progress_update(f"Scraping content from {url}")
@@ -247,7 +255,7 @@ class Tools:
                 if __event_emitter__:
                     await event_emitter.error_update(error_msg)
                 return error_msg
-            
+           
             # Parse the response
             response_data = response.json()
             logger.debug(f"Raw response data: {response_data}")
@@ -266,32 +274,39 @@ class Tools:
                 if __event_emitter__:
                     await event_emitter.error_update(error_msg)
                 return error_msg
-            
+
             # Success message
             if __event_emitter__:
                 await event_emitter.success_update(f"Firecrawl successfully scraped content from {url}")
             
-            # Return the content
-            content = {}  
-            for format in self.valves.formats:
-                data = response_data.get("data", {}).get(format)
-                if data:  
-                    if format == "html" and "html2text" in self.valves.formats:
-                        data_html = response_data.get("data", {}).get("html")
-                        content["html2text"] = str(self.html_clean_html2text(data_html))
-                    
-                    if format == "html" and "html2bs4" in self.valves.formats:
-                        data_html = response_data.get("data", {}).get("html")
-                        content["html2bs4"] = str(self.html_clean_bs4(data_html))
-
-                    if format == "html":
-                        content["html"] = str(data)
-                    else:
-                        content[format] = data
-                    
             
-            pprint(content, width=300, sort_dicts=False)
-            return str(content)
+            if self._skip_html:
+                self.valves.formats.pop(0)
+
+            # Return the content
+            content = {}
+            for format in self.valves.formats:
+                data = response_data.get("data", {}).get(format, "")
+                data_html = response_data.get("data", {}).get("html")
+                if format == "html":
+                    content["html"] = str(data)
+                else:
+                    content[format] = data
+                if format == "html2text":
+                    content["html2text"] = str(self.html_clean_html2text(data_html))
+                if format == "html2bs4" :
+                    content["html2bs4"] = str(self.html_clean_bs4(data_html))
+            
+            # Lets return content
+            formatted_content = json.dumps(content, indent=4, ensure_ascii=False)
+            decoded_content = json.loads(formatted_content)
+            pretty_content = json.dumps(decoded_content, indent=4, ensure_ascii=False).replace('\\n', '\n')
+            return (    f"""Date now: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n""" +
+                        f"""Page content from URL: {url}\n"""+
+                        f"""Metadata: {response_data.get("data", {}).get("metadata")}\n"""+
+                        f"""{pretty_content}\n""").strip()
+
+
             
         except Exception as e:
             error_msg = f"Error: {str(e)}"
@@ -306,13 +321,13 @@ if __name__ == "__main__":
     
     # Initialize the tool
     tools = Tools()
-    tools.valves.firecrawl_api_url = "https://firecrawl.selfhosted/v1/"
+    tools.valves.firecrawl_api_url = "https://firecrawl.self.hosted/v1/"
     tools.valves.verify_ssl = False
     tools.valves.firecrawl_api_key = "sk-1234"  # Replace with your actual API key
-    tools.valves.formats = [ "html", "html2text", "html2bs4", "markdown" ]  # Support multiple formats togethere
+    tools.valves.formats = [ "html2text", "html2bs4" ]
     
     # Test payload matching the curl command
-    test_url = "https://artur.zdolinski.com/"
+    test_url = "https://cnn.com/"
 
     # Run the test
     async def run_test():
