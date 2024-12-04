@@ -5,8 +5,8 @@ author: Artur Zdolinski
 author_url: https://github.com/azdolinski
 git_url: https://github.com/azdolinski/firecrawl
 required_open_webui_version: 0.4.0
-requirements: requests, urllib3, pydantic, html2text
-version: 0.4.0
+requirements: requests, urllib3, pydantic, html2text, tiktoken
+version: 0.6.0 [2024-12-04]
 licence: MIT
 """
 
@@ -23,6 +23,8 @@ from pprint import pprint
 from datetime import datetime
 from textwrap import dedent
 import re
+import tiktoken
+
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -57,8 +59,8 @@ class Tools:
         firecrawl_api_url: str = "https://api.firecrawl.dev/v1/"
         firecrawl_api_key: str = ""
         formats: List[str] = Field(
-            default=["html2text", "html2bs4"] ,
-            description='Output formats for the scraped content: markdown, html, rawHtml, links, screenshot. You can also use extra processing of html -> html2text, html2bs4'
+            default=["markdown"] ,
+            description='Output formats for the scraped content: markdown, html, rawHtml, links, screenshot. Extra post processing HTML function -> html2text, html2bs4'
         )
 
         # Optional fields with defaults
@@ -132,10 +134,24 @@ class Tools:
         self._session = None
         self._skip_html = False
 
+    def num_tokens_from_string(self, string: str, encoding_name: str) -> int:
+        """Returns the number of tokens in a text string."""
+        encoding = tiktoken.get_encoding(encoding_name)
+        num_tokens = len(encoding.encode(string))
+        return num_tokens
+
+
     def text_cleaner(self, text):
         """Cleans up the text by removing extra whitespaces, newlines, and unwanted URLs."""
-        # Remove URLs that don't start with http or email
-        cleaned_text = re.sub(r'\[.*?\]\((?!(?:http|mailto:)).*?\)', '', text)
+        # Remove escaped backslashes
+        cleaned_text = re.sub(r'\\+', '', text)
+        
+        # Remove URLs that don't start with http or mailto
+        cleaned_text = re.sub(r'\[.*?\]\((?!(?:http|mailto:)).*?\)', '', cleaned_text)  # Remove markdown links
+        cleaned_text = re.sub(r'\(/?[^)]*?/[^)]+\)', '', cleaned_text)  # Remove parenthesized paths
+        
+        # Remove lines that consist of repeated characters (like ===, ---, ###)
+        cleaned_text = re.sub(r'^[=\-#\*]{3,}$', '', cleaned_text, flags=re.MULTILINE)
         
         # Remove empty lines and extra whitespace
         cleaned_text = re.sub(r'\n\s*\n', '\n', cleaned_text)  # Replace multiple newlines with single
@@ -175,7 +191,7 @@ class Tools:
         h = html2text.HTML2Text()
 
         # Podstawowa konfiguracja
-        h.ignore_links = False        # zachowuje linki
+        h.ignore_links = True        # zachowuje linki
         h.ignore_images = True        # ignoruje obrazy
         h.ignore_emphasis = True      # ignoruje pogrubienia/kursywy
         h.body_width = 0             # wyłącza zawijanie tekstu
@@ -186,13 +202,13 @@ class Tools:
         h.skip_internal_links = True # pomija wewnętrzne linki
         h.inline_links = True        # linki w tekście, nie na końcu
 
-        h.ignore_tables = False      # zachowa tabele
-        h.bypass_tables = False      # zachowa formatowanie tabel
+        #h.ignore_tables = False      # zachowa tabele
+        #h.bypass_tables = False      # zachowa formatowanie tabel
 
         # Convert HTML to markdown and clean up empty lines
         markdown_text = h.handle(html_content)
         # Remove multiple empty lines and strip whitespace
-        cleaned_text = '\n'.join(line.strip() for line in markdown_text.splitlines() if line.strip())
+        #cleaned_text = '\n'.join(line.strip() for line in markdown_text.splitlines() if line.strip())
         cleaned_text = self.text_cleaner(markdown_text)
         return cleaned_text
 
@@ -309,6 +325,7 @@ class Tools:
                 self.valves.formats.pop(0)
 
             # Return the content
+            #print("URL: " + str(url))
             content = {}
             for format in self.valves.formats:
                 data = response_data.get("data", {}).get(format, "")
@@ -320,12 +337,14 @@ class Tools:
                     content[format] = self.text_cleaner(data)
 
                 if format == "html2text":
-                    content["html2text"] = str(self.html_clean_html2text(data_html))
+                    content["html2text"] = str(self.text_cleaner(self.html_clean_html2text(data_html)))
                 if format == "html2bs4" :
-                    content["html2bs4"] = str(self.html_clean_bs4(data_html))
+                    content["html2bs4"] = str(self.text_cleaner(self.html_clean_bs4(data_html)))
             
                 if content[format] is None:
                     content[format] = data
+
+                #print(f"Tokens for format: " + format + ": " + str(self.num_tokens_from_string(content[format], "cl100k_base")) + "[cl100k_base] / " + str(self.num_tokens_from_string(content[format], "o200k_base")) + "[o200k_base] - content len: "+ str(len(content[format])) + " chars")
 
             # Lets return content
             formatted_content = json.dumps(content, indent=4, ensure_ascii=False)
