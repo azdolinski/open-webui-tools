@@ -2,8 +2,8 @@
 title: LiteLLMLangfuseFilter
 author: Autor Zdolinski
 author_url: https://github.com/azdolinski/open-webui-tools/filtrs/langfuse_filter.py
-version: 0.5.16
-date: 2025-02-24
+version: 0.5.20
+date: 2025-03-13
 license: GPLv3
 description: OpenWebUI Filter that adds user and email to metadata for langfuse via litellm proxy. Based on AddMetadata (by thiswillbeyourightub) filter.
 """
@@ -101,7 +101,6 @@ class Filter:
                     )
             new_value = f"{__user__['name']}_{__user__['email']}"
             body["user"] = str(__user__["name"])
-            body["user_email"] = str(__user__["email"])
             await log(f"Added user metadata '{new_value}'")
 
             if "metadata" in body:
