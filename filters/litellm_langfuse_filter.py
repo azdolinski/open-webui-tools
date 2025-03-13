@@ -5,7 +5,7 @@ author_url: https://github.com/azdolinski/open-webui-tools/filtrs/langfuse_filte
 version: 0.5.20
 date: 2025-03-13
 license: GPLv3
-description: OpenWebUI Filter that adds user and email to metadata for langfuse via litellm proxy. Based on AddMetadata (by thiswillbeyourightub) filter.
+description: OpenWebUI Filter that adds user to metadata for langfuse via litellm proxy. Based on AddMetadata (by thiswillbeyourightub) filter.
 """
 
 from pydantic import BaseModel, Field
